@@ -2,7 +2,7 @@
 ## Fall 2023
 ## Project 1: Unraveling the Stories Behind Women's Smiles
 
-![image](figs/Title_Image.jpg)
+![image](figs/Title_Image.jpeg)
 
 ### [Project Description](doc/Proj1_desc.md)
 This is the first and only *individual* (as opposed to *team*) this semester. 
