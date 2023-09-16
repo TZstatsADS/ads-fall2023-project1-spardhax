@@ -12,7 +12,8 @@ Term: Fall 2023
 + Projec title: Unraveling the Stories Behind Women's Smiles
 + This project is conducted by [Spardha Sharma]
 
-+ Project summary: [a short summary] Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
++ Project summary: Women have traditionally embraced multiple roles, including mother, daughter, wife, sister, and friend- often by choice or necessity. In today’s world, the role of women has evolved significantly and positively. Women are now educated, self-reliant and financially independent. They have various avenues for personal fulfillment and joy. This project aims to explore these avenues to uncover the words and topics linked to women's happiness. The analysis comprises of 4 sections- analyzing women's happiness overall and comparing it between women across different life stages (married/unmarried), in diverse global regions (developed/undeveloped), and among various age groups (20s/30s/40+). Technical topics include: Natural Language Processing (NLP), Sentiment Analysis, Topic Modelling, Linear Discriminant Analysis (LDA)
+
 
 Following [suggestions](http://nicercode.github.io/blog/2013-04-05-projects/) by [RICH FITZJOHN](http://nicercode.github.io/about/#Team) (@richfitz). This folder is orgarnized as follows.
 
