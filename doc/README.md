@@ -1,4 +1,4 @@
-# ADS Project 1: What made you happy today?
+# Project 1: Unraveling the Stories Behind Women's Smiles
 ### Doc folder
 
 The doc directory contains the report or presentation files. It can have subfolders. 
