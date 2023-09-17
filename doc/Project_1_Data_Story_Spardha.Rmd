@@ -1,0 +1,934 @@
+---
+title: "Unraveling the Stories Behind Women's Smiles"
+author: "by Spardha Sharma"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+####  Project Summary
+Women have traditionally embraced multiple roles, including mother, daughter, wife, sister, and friend- often by choice or necessity. In today’s world, the role of women has evolved significantly and positively. Women are now educated, self-reliant and financially independent. They have various avenues for personal fulfillment and joy. This project aims to explore these avenues to uncover the words and topics linked to women's happiness. The analysis comprises of 4 sections- analyzing women's happiness overall and comparing it between women across different life stages (married/unmarried), in diverse global regions (developed/undeveloped), and among various age groups (20s/30s/40+)
+
+
+```{r, warning=FALSE,message=FALSE}
+# Importing the necessary libraries
+library(tm)
+library(tidytext)
+library(tidyverse)
+library(devtools)
+library(DT)
+library(scales)
+library(countrycode)
+library(dplyr)
+library(ggplot2)
+library(NLP)
+library(tibble)
+library(topicmodels)
+library(wordcloud2)
+library(gridExtra)
+library(ngram)
+install_github("gaospecial/wordcloud2")
+```
+
+```{r, warning=FALSE,message=FALSE}
+# Reading "processed_moments.csv" created in data_preprocessing.R (in lib folder)
+hm_data <- read_csv("~/Desktop/processed_moments.csv")
+
+# Reading the demographics file
+demographics<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+demo_data <- read_csv(demographics)
+```
+
+Happiness takes on various meanings for different women. In this analysis, I aim to explore these unique definitions by examining the words they associate with their happiness. The analysis aims to explore the diverse meanings of happiness for women and uncover the words they connect with this cherished emotion.
+
+#### Section 1: What do women associate happiness with?
+```{r, warning=FALSE,message=FALSE}
+# making a datatable that consists of only female data. It is formed by combining hm_data with demo_data
+all_women <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))
+
+datatable(all_women)
+
+# Creating a bag of words using the text data
+bag_of_words_all_women <-  all_women %>%
+  unnest_tokens(word, text)
+
+word_count_all_women <- bag_of_words_all_women %>%
+  count(word, sort = TRUE)
+```
+
+
+##### Overview of Words that Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE, echo=TRUE}
+# making a word cloud
+wordcloud2(word_count_all_women, size = 0.6, rotateRatio = 0)
+```
+
+
+From the word cloud, it is evident that women derive happiness from various sources. The most prominent among these is the **companionship of their friends**, indicating the importance of social connections. Additionally, **family members**, including husbands and children, play a significant role in contributing to women's happiness. The presence of words like "surprise," "celebrated," and "enjoyed" suggests that women also associate happiness with **moments of celebration and enjoyment**.
+
+
+```{r, warning=FALSE,message=FALSE, echo=FALSE}
+# creating bigrams using the text data
+hm_bigrams_all_women <- all_women %>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_all_women <- hm_bigrams_all_women %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+
+top_n_bigrams <- 10
+
+top_bigrams_all_women <- bigram_counts_all_women %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Pairs of Words Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE}
+ggplot(top_bigrams_all_women, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() + 
+  ggtitle("Top 10 Pairs of Words Women Associate Happiness With") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+From the bigram visualization, it **appears that celebrating birthdays is a significant source of joy for some women**. This is followed by pairs of words that indicate family and friends. Let's figure out the top word that was used to describe happiness among women.This means examining unigram frequencies and identifying the single word most commonly associated with happiness in all_women dataset.
+
+```{r, warning=FALSE,message=FALSE, echo=FALSE}
+top_words_all_women <- word_count_all_women%>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Words of Words Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE}
+# Making a unigram of top 10 words
+ggplot(top_words_all_women, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Words Tied to Women's Happiness") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+As anticipated, the unigram analysis reveals that "friend" and "family" are the primary elements that women associate with happiness.
+
+Next, I perform Topic Modelling using Latent Dirichlet Allocation (LDA) to get Top 10 Topics Women Associate Happiness with.
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_all_women <- Corpus(VectorSource(all_women$text))
+dtm_all_women <- DocumentTermMatrix(corpus_all_women,
+                          control = list(
+                            wordLengths=c(2, Inf),
+                            bounds = list(global = c(1,Inf)),
+                            removeNumbers = TRUE,
+                            weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_all_women <- LDA(dtm_all_women, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_all_women <- as.data.frame(terms(lda_model_all_women, k = 100))
+```
+
+##### Top 10 Topics Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE}
+# Top 10 topics (with 10 terms each)  women associate happiness with
+head(lda_terms_all_women, 10)
+
+# plotting these topics into a bar chart
+lda_topics <- topics(lda_model_all_women, k = 1)
+all_women$topic <- as.factor(lda_topics)
+ggplot(data = all_women) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Family", "2. Food", "3. Children", "4. Job", 
+                                 "5. Education", "6. Reading", 
+                                 "7. Shopping", "8. Nature", "9. Celebration", "10. Entertainment")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Overall, women find happiness in family and friends. They also express interest in additional aspects of life, including job, shopping and nature, indicating their ongoing exploration of diverse sources of joy. But do these topics change when we subset women into various categories? The following sections will explore this. We start off by comparing the sources of happiness between unmarried and married women.
+
+#### Section 2: Is there a difference between the sources of happiness between unmarried and married women?
+*Note that single, widowed and divorced women are considered unmarried for the purposes of the analysis.*
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# making a datatable that consists of unmarried women. It is formed by combining hm_data with demo_data and adding the necessary filters.
+unmarried_women <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))%>%
+  filter(marital %in% c("single","divorced","widowed"))
+# making a datatable that consists of married women. It is formed by combining hm_data with demo_data and adding the necessary filters.
+married_women <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))%>%
+  filter(marital %in% c("married"))
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# Creating a bag of words using the text data
+bag_of_words_unmarried_women <-  unmarried_women %>%
+  unnest_tokens(word, text)
+bag_of_words_married_women <-  married_women %>%
+  unnest_tokens(word, text)
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+word_count_unmarried_women <- bag_of_words_unmarried_women %>%
+  count(word, sort = TRUE)
+word_count_married_women <- bag_of_words_married_women %>%
+  count(word, sort = TRUE)
+```
+
+##### Overview of Words that Unmarried Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE, echo=TRUE}
+wordcloud2(word_count_unmarried_women, size = 0.6, rotateRatio = 0)
+```
+
+
+Friends continue to be a big source of joy. This is followed by words that resonate with themes of **relationship, celebration and shopping**.
+
+##### Overview of Words that Married Women Associate Happiness With
+```{r, warning=FALSE,message=FALSE, echo=TRUE}
+wordcloud2(word_count_married_women, size = 0.6, rotateRatio = 0)
+```
+
+
+Words such as "husband","daughter" and "son" suggest that **married women place high importance on personal relationships**.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# creating bigrams using the text data
+hm_bigrams_unmarried_women <- unmarried_women%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+hm_bigrams_married_women <- married_women%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_unmarried_women <- hm_bigrams_unmarried_women %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+bigram_counts_married_women <- hm_bigrams_married_women %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+
+top_n_bigrams <- 10
+
+top_bigrams_unmarried_women <- bigram_counts_unmarried_women %>%
+  head(top_n_bigrams)
+top_bigrams_married_women <- bigram_counts_married_women %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Pairs of Words Unmarried Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_unmarried_women, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Pairs of Words Unmarried Women Associate Happiness With") +theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+The bigram visualization highlights key themes of family, friends, and celebrations as central to women's happiness. Additionally, **unmarried women appear to derive personal fulfillment from activities like watching TV and job interviews**.
+
+#### Top 10 Pairs of Words Married Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_married_women, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Pairs of Words Married Women Associate Happiness With") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+For married women, happiness primarily stems to be from family relationships.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+top_words_unmarried_women <- word_count_unmarried_women %>%
+  head(top_n_bigrams)
+top_words_married_women <- word_count_married_women %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Words Unmarried Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_unmarried_women, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() + 
+  ggtitle("Top 10 Words Tied to Unmarried Women's Happiness") + 
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Top 10 Words Married Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_married_women, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Words Tied to Married Women's Happiness") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+The unigrams reflect the same themes depicted on the bigrams.
+
+Next, I perform Topic Modelling using Latent Dirichlet Allocation (LDA) to get Top 10 Topics Married and Unmarried Women Associate Happiness with.
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_unmarried_women <- Corpus(VectorSource(unmarried_women$text))
+dtm_unmarried_women <- DocumentTermMatrix(corpus_unmarried_women,
+                          control = list(
+                            wordLengths=c(2, Inf),
+                            bounds = list(global = c(1,Inf)),
+                            removeNumbers = TRUE,
+                            weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_unmarried_women <- LDA(dtm_unmarried_women, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_unmarried_women <- as.data.frame(terms(lda_model_unmarried_women, k = 100))
+
+corpus_married_women <- Corpus(VectorSource(married_women$text))
+dtm_married_women <- DocumentTermMatrix(corpus_married_women,
+                                          control = list(
+                                            wordLengths=c(2, Inf),
+                                            bounds = list(global = c(1,Inf)),
+                                            removeNumbers = TRUE,
+                                            weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_married_women <- LDA(dtm_married_women, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_married_women <- as.data.frame(terms(lda_model_married_women, k = 100))
+```
+
+#### Top 10 Topics Unmarried Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_unmarried_women, 10)
+# Ordered Bar plot of topics
+lda_topics_unmarried_women <- topics(lda_model_unmarried_women, k = 1)
+unmarried_women$topic <- as.factor(lda_topics_unmarried_women)
+ggplot(data = unmarried_women) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Family", "2. Nature", "3. Education", "4. Pets", "5. Shopping", "6. Job", "7. Celebration", "8. Going Out", "9. Food", "10. Entertainment")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Unmarried Women's Happiness") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+#### Top 10 Topics Married Women Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_married_women, 10)
+lda_topics_married_women <- topics(lda_model_married_women, k = 1)
+married_women$topic <- as.factor(lda_topics_married_women)
+ggplot(data = married_women) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Children", "2. Shopping", "3. Reading", "4. Food",  "5. Family", "6. Going Out",  "7. Celebration", "8. Pets", "9. Job", "10. Education")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Married Women's Happiness") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Overall, **unmarried women tend to derive happiness from interesting topics like nature, education and job. On the other hand, children are a constant source of joy for married women. It also seems like married women have an additional appreciation for food**.  Despite these differences, both groups share the belief that family is the most significant source of joy.
+
+The next plot is a scatterplot that compares happy moments of unmarried and married women
+
+
+#### Word Proportion Scatterplot for Unmarried and Married Women
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+plot_data <- bag_of_words_all_women %>%
+  mutate(married = if_else(marital == "married", 'married', 'unmarried'))%>%
+  count(married, word) %>%
+  group_by(married) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  spread(married, proportion)
+ggplot(plot_data, 
+       aes_string(x = colnames(plot_data)[2], y = colnames(plot_data)[3]),
+       color = abs(colnames(plot_data)[3] - colnames(plot_data)[2])) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 1, width = 0.3, height = 0.3) +
+  labs(title="Happy Moments for Unmarried v/s Married Women")+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), low = "darkslategray4", high = "gray75") +theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+### Section 3: Is there a difference between the sources of happiness between women in developed regions and those in undeveloped regions?
+*Note the definitions of 'developed' and 'undeveloped' regions are as per the United Nations website*. 
+
+https://population.un.org/wpp/DefinitionOfRegions/ 
+
+For this analysis, I'll be using countrycode library to identify the continents each of female respondent belongs to. Following this, based on their continent's economic status as per United Nations, female respondents are going to be split into developed and undeveloped categories.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# checking all unique country codes in the data set
+unique(all_women$country)
+# manually mapping out the country codes to their names
+country_mapping <- data.frame(
+  country_code = c(
+    "USA", "DNK", "IND", "KWT", "FIN", "VEN", "CAN", "IRL", "GBR", "JAM", "ESP",
+    "MEX", "ARM", "NGA", "PHL", "GRC", "LTU", "BGR", "TUR", "DZA", "IDN", "ZAF",
+    "AUT", "LKA", "PAK", "NZL", "SRB", "ETH", "PRI", "NIC", "NLD", "EGY", "AUS",
+    "BEL", "DEU", "ITA", "ASM", "THA", "UGA", "ARE", "JPN", "DOM", "UMI", "CYP",
+    "PRT", "MYS", "FRA", "BRB", "CZE", "BHS", "ISL", "SUR", "MKD", "TCA", "TTO",
+    "SGP", "BRA", "ZMB", "AFG", "TWN", "VIR", "SLV", "GTM", "NOR", "COL", "MDA"
+  ),
+  country_name = c(
+    "United States", "Denmark", "India", "Kuwait", "Finland", "Venezuela", "Canada", "Ireland", "United Kingdom", "Jamaica", "Spain",
+    "Mexico", "Armenia", "Nigeria", "Philippines", "Greece", "Lithuania", "Bulgaria", "Turkey", "Algeria", "Indonesia", "South Africa",
+    "Austria", "Sri Lanka", "Pakistan", "New Zealand", "Serbia", "Ethiopia", "Puerto Rico", "Nicaragua", "Netherlands", "Egypt", "Australia",
+    "Belgium", "Germany", "Italy", "American Samoa", "Thailand", "Uganda", "United Arab Emirates", "Japan", "Dominican Republic", "United States", "Cyprus",
+    "Portugal", "Malaysia", "France", "Barbados", "Czech Republic", "Bahamas", "Iceland", "Suriname", "North Macedonia", "Turks and Caicos Islands", "Trinidad and Tobago",
+    "Singapore", "Brazil", "Zambia", "Afghanistan", "Taiwan", "U.S. Virgin Islands", "El Salvador", "Guatemala", "Norway", "Colombia", "Moldova"
+  )
+)
+# adding 2 new columns in all_women datatable.
+# country_full = full name of the country of the respondent
+all_women$country_full <- country_mapping$country_name[match(all_women$country, country_mapping$country_code)]
+# continent = continent of the respondent
+all_women$continent <- countrycode(
+  sourcevar = all_women$country_full,
+  origin = "country.name",
+  destination = "region23"
+)
+unique(all_women$continent)
+
+# splitting the female respondents into developed and undeveloped regions
+all_women_developed<- all_women %>%
+  filter(gender %in% c("f"))%>%
+  filter(continent %in% c("Northern America", "Northern Europe", "Southern Europe", "Eastern Europe", "Western Europe", "Australia and New Zealand", "Eastern Asia"))
+all_women_undeveloped<- all_women %>%
+  filter(gender %in% c("f"))%>%
+  #filter(marital %in% c("married"))%>%
+  filter(continent %in% c("Southern Asia", "Western Asia", "South America", "Caribbean", "Central America", "Western Africa", "South-Eastern Asia", "Northern Africa", "Southern Africa", "Eastern Africa", "Polynesia"))
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# Creating a bag of words using the text data
+bag_of_words_all_women_developed <-  all_women_developed %>%
+  unnest_tokens(word, text)
+bag_of_words_all_women_undeveloped <-  all_women_undeveloped %>%
+  unnest_tokens(word, text)
+
+word_count_all_women_developed <- bag_of_words_all_women_developed %>%
+  count(word, sort = TRUE)
+word_count_all_women_undeveloped <- bag_of_words_all_women_undeveloped %>%
+  count(word, sort = TRUE)
+```
+
+##### Overview of Words that Women in Developed Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE}
+wordcloud2(word_count_all_women_developed, size = 0.6, rotateRatio = 0)
+```
+
+##### Overview of Words that Women in Undeveloped Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE}
+wordcloud2(word_count_all_women_undeveloped, size = 0.6, rotateRatio = 0)
+```
+
+
+
+Comparing the above 2 word clouds, it seems like women in developed regions find happiness in family, which has been a common theme. **However, a notable difference is the prominence of the word "home" in the word cloud of women in developed regions. This may be attributed to the fact that women in developed regions often have the privilege of staying at home, whereas those in undeveloped areas may need to work diligently to support their families.**
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# creating bigrams using the text data
+hm_bigrams_all_women_developed <- all_women_developed%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+hm_bigrams_all_women_undeveloped <- all_women_undeveloped%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_all_women_developed <- hm_bigrams_all_women_developed %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+bigram_counts_all_women_undeveloped <- hm_bigrams_all_women_undeveloped %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+
+top_n_bigrams <- 10
+
+top_bigrams_all_women_developed <- bigram_counts_all_women_developed %>%
+  head(top_n_bigrams)
+top_bigrams_all_women_undeveloped <- bigram_counts_all_women_undeveloped %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Pairs of Words Women in Developed Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_all_women_developed, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +
+  ggtitle("Top 10 Pairs of Words Women in Developed Regions Find Joy In") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+  
+#### Top 10 Pairs of Words Women in Undeveloped Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_all_women_undeveloped, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Pairs of Words Women in Undeveloped Regions Find Joy In") +theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+Both the visualizations highlight the observation made above- women in developed regions can afford to stay at home and find personally fulfilling activities. For women in undeveloped regions, this is not an option. Hence, their happiness is sourced from offsite activities at work.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+top_words_all_women_developed <- word_count_all_women_developed %>%
+  head(top_n_bigrams)
+top_words_all_women_undeveloped <- word_count_all_women_undeveloped %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Words Women in Developed Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_all_women_developed, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +
+  ggtitle("Top 10 Words Tied to Women's Happiness in Developed Regions") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+  
+#### Top 10 Words Women in Undeveloped Regions Associate Happiness With 
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_all_women_undeveloped, aes(x = reorder(word, n), y = n)) + geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") + coord_flip()+
+  ggtitle("Top 10 Words Tied to Women's Happiness in Undeveloped Regions") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+Let's proceed with Topic Modelling using Latent Dirichlet Allocation (LDA) to get Top 10 Topics Women in these regions Associate Happiness with.
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_all_women_developed <- Corpus(VectorSource(all_women_developed$text))
+dtm_all_women_developed <- DocumentTermMatrix(corpus_all_women_developed,
+                                          control = list(
+                                            wordLengths=c(2, Inf),
+                                            bounds = list(global = c(1,Inf)),
+                                            removeNumbers = TRUE,
+                                            weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_all_women_developed <- LDA(dtm_all_women_developed, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_all_women_developed <- as.data.frame(terms(lda_model_all_women_developed, k = 100))
+
+corpus_all_women_undeveloped <- Corpus(VectorSource(all_women_undeveloped$text))
+dtm_all_women_undeveloped <- DocumentTermMatrix(corpus_all_women_undeveloped,
+                                        control = list(
+                                          wordLengths=c(2, Inf),
+                                          bounds = list(global = c(1,Inf)),
+                                          removeNumbers = TRUE,
+                                          weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_all_women_undeveloped <- LDA(dtm_all_women_undeveloped, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_all_women_undeveloped <- as.data.frame(terms(lda_model_all_women_undeveloped, k = 100))
+```
+
+##### Top 10 Topics Women in Developed Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_all_women_developed, 10)
+lda_topics_all_women_developed <- topics(lda_model_all_women_developed, k = 1)
+all_women_developed$topic <- as.factor(lda_topics_all_women_developed)
+ggplot(data = all_women_developed) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Nature", "2. Family", "3. Vacation", "4. Shopping", "5. Pets", "6. Education",  "7. Entertainment", "8. Food", "9. Job", "10. Home")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness in Developed Regions") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+##### Top 10 Topics Women in Undeveloped Regions Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_all_women_undeveloped, 10)
+lda_topics_all_women_undeveloped <- topics(lda_model_all_women_undeveloped, k = 1)
+all_women_undeveloped$topic <- as.factor(lda_topics_all_women_undeveloped)
+ggplot(data = all_women_undeveloped) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Family", "2. Shopping", "3. Adventure", "4. Food",  "5. Celebration", "6. Parents",   "7. Education", "8. Entertainment", "9. Reading", "10. Nature")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness in Undeveloped Regions") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+Overall, **women in developed countries often find happiness in home-based activities and have the means to enjoy vacations with their families. In contrast, women in undeveloped countries, while also valuing shopping, may not have the same opportunities for extravagant vacations**.
+
+The next plot is a scatterplot that compares happy moments of women in these two regions
+
+#### Word Proportion Scatterplot for Women in Undeveloped v/s Developed Regions
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+bag_of_words_all_women_with_continent <-  all_women %>%
+  unnest_tokens(word, text)
+temp_data <- bag_of_words_all_women_with_continent %>%
+  mutate(developed = if_else(continent %in% c("Northern America", "Northern Europe", "Southern Europe", "Eastern Europe", "Western Europe", "Australia and New Zealand", "Eastern Asia"), 'developed', 'undeveloped'))%>%
+  count(developed, word) %>%
+  group_by(developed) %>%
+  mutate(proportion = n / sum(n)) %>% 
+  select(-n) %>% 
+  spread(developed, proportion)
+ggplot(temp_data, 
+       aes_string(x = colnames(temp_data)[2], y = colnames(temp_data)[3]),
+       color = abs(colnames(temp_data)[3] - colnames(temp_data)[2])) +
+  geom_abline(color = "gray40", lty = 2) +
+  geom_jitter(alpha = 0.1, size = 1, width = 0.3, height = 0.3) +
+  labs(title="Happy Moments for Women in Undeveloped v/s Developed Regions")+
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  scale_color_gradient(limits = c(0, 0.001), low = "darkslategray4", high = "gray75") +
+  theme(legend.position="none")
+```
+
+#### Section 4: Is there a difference between the sources of happiness of women belonging to different age groups?
+Now, we will split the data into 3 groups: twenties (women of age 20+ but less than 30), thirties (women of age 30+ but less than 40) and forties_and_over (women of age 40+ but less than 100). *Please note we are not considering teenagers in this analysis since most of the topics like job, children won't apply to them. Additionally, there are some outliers in age category: values like 233. Hence, the upper limit for age is 100. The overall range is (20-100).*
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+unique(all_women$age)
+twenties <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))%>%
+  filter(age %in% c(20:29))
+thirties <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))%>%
+  filter(age %in% c(30:39))
+forties_and_over <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("f"))%>%
+  filter(age %in% c(40:100))
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+# creating bigrams using the text data
+bag_of_words_twenties <-  twenties %>%
+  unnest_tokens(word, text)
+bag_of_words_thirties <-  thirties %>%
+  unnest_tokens(word, text)
+bag_of_words_forties_and_over <-  forties_and_over %>%
+  unnest_tokens(word, text)
+
+word_count_twenties <- bag_of_words_twenties %>%
+  count(word, sort = TRUE)
+word_count_thirties <- bag_of_words_thirties %>%
+  count(word, sort = TRUE)
+word_count_forties_and_over <- bag_of_words_forties_and_over %>%
+  count(word, sort = TRUE)
+```
+
+##### Overview of Words that Women in Their 20s Associate Happiness With
+```{r, warning=FALSE, message=FALSE}
+wordcloud2(word_count_twenties, size = 0.6, rotateRatio = 0)
+```
+
+##### Overview of Words that Women in Their 30s Associate Happiness With
+```{r, warning=FALSE, message=FALSE}
+wordcloud2(word_count_thirties, size = 0.6, rotateRatio = 0)
+```
+
+##### Overview of Words that Women 40+ Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+wordcloud2(word_count_forties_and_over, size = 0.6, rotateRatio = 0)
+```
+
+
+
+**Through the progression of the word clouds, it becomes apparent that the word "friend" appears less prominently as women transition from their 20s to older age groups, with increasing emphasis on family**. Additionally, celebrations seem to decrease in significance as middle-aged women prefer spending time at home with their children.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+hm_bigrams_twenties <- twenties%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+hm_bigrams_thirties <- thirties%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+hm_bigrams_forties_and_over <- forties_and_over%>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_twenties <- hm_bigrams_twenties %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+bigram_counts_thirties <- hm_bigrams_thirties %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+bigram_counts_forties_and_over <- hm_bigrams_forties_and_over %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)%>%
+  filter(word1 != word2)
+
+top_n_bigrams <- 10
+
+top_bigrams_twenties <- bigram_counts_twenties %>%
+  head(top_n_bigrams)
+top_bigrams_thirties <- bigram_counts_thirties %>%
+  head(top_n_bigrams)
+top_bigrams_forties_and_over <- bigram_counts_forties_and_over %>%
+  head(top_n_bigrams)
+```
+
+
+#### Top 10 Pairs of Words Women in Their 20s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_twenties, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Pairs of Words Women in Their 20s Associate Happiness With") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+  
+#### Top 10 Pairs of Words Women in Their 30s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_thirties, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Pairs of Words Women in Their 30s Associate Happiness With") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+  
+
+#### Top 10 Pairs of Words Women 40+ Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_bigrams_forties_and_over, aes(x = reorder(paste(word1, word2, sep = " "), n), y = n)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Pair of Words", y = "Frequency") +
+  coord_flip() +
+  ggtitle("Top 10 Pairs of Words Women 40+ Associate Happiness With") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+In the bigram visualizations, it's evident that **as women age, their personal celebrations, such as birthdays and college journeys, are gradually replaced by those of their children. This shift suggests that women ultimately find more joy in celebrating their family's milestones as they age**.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+top_words_twenties <- word_count_twenties %>%
+  head(top_n_bigrams)
+top_words_thirties <- word_count_thirties %>%
+  head(top_n_bigrams)
+top_words_forties_and_over <- word_count_forties_and_over %>%
+  head(top_n_bigrams)
+```
+
+#### Top 10 Words Women in Their 20s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_twenties, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +  
+  ggtitle("Top 10 Words Tied to Women's Happiness in Their 20s") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+#### Top 10 Words Women in Their 30s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_thirties, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +
+  ggtitle("Top 10 Words Tied to Women's Happiness in Their 30s") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+#### Top 10 Words Women 40+ Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+ggplot(top_words_forties_and_over, aes(x = reorder(word, n), y = n)) +
+  geom_bar(stat = "identity", fill = "dark green") +
+  labs(x = "Word", y = "Frequency") +
+  coord_flip() +
+  ggtitle("Top 10 Words Tied to Women's Happiness in Their 40s and Above") +
+  theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+Next, I perform Topic Modelling using Latent Dirichlet Allocation (LDA) to get top 10 topics women of different age groups associate happiness with.
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_twenties <- Corpus(VectorSource(twenties$text))
+dtm_twenties <- DocumentTermMatrix(corpus_twenties,
+                                              control = list(
+                                                wordLengths=c(2, Inf),
+                                                bounds = list(global = c(1,Inf)),
+                                                removeNumbers = TRUE,
+                                                weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_twenties <- LDA(dtm_twenties, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_twenties <- as.data.frame(terms(lda_model_twenties, k = 100))
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_thirties <- Corpus(VectorSource(thirties$text))
+dtm_thirties <- DocumentTermMatrix(corpus_thirties,
+                                   control = list(
+                                     wordLengths=c(2, Inf),
+                                     bounds = list(global = c(1,Inf)),
+                                     removeNumbers = TRUE,
+                                     weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_thirties <- LDA(dtm_thirties, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_thirties <- as.data.frame(terms(lda_model_thirties, k = 100))
+```
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+corpus_forties_and_over <- Corpus(VectorSource(forties_and_over$text))
+dtm_forties_and_over <- DocumentTermMatrix(corpus_forties_and_over,
+                                                control = list(
+                                                  wordLengths=c(2, Inf),
+                                                  bounds = list(global = c(1,Inf)),
+                                                  removeNumbers = TRUE,
+                                                  weighting = weightTf)
+)
+# Performing Latent Dirichlet Allocation (LDA) topic modeling on the DTM with 10 topics
+lda_model_forties_and_over <- LDA(dtm_forties_and_over, 10, method = "Gibbs", control = list(seed=20180910, burnin=1000))
+# Extracting the top 100 terms associated with each of the 10 topics
+lda_terms_forties_and_over <- as.data.frame(terms(lda_model_forties_and_over, k = 100))
+```
+
+##### Top 10 Topics Women in Their 20s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_twenties, 10)
+lda_topics_twenties <- topics(lda_model_twenties, k = 1)
+twenties$topic <- as.factor(lda_topics_twenties)
+ggplot(data = twenties) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Food", "2. Celebration", "3. Entertainment", "4. Family", "5. Adventure", "6. Vacation", "7. Pets", "8. Education", "9. Reading", "10. Friends")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness in Their 20s") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+##### Top 10 Topics Women in Their 30s Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_thirties, 10)
+lda_topics_thirties <- topics(lda_model_thirties, k = 1)
+thirties$topic <- as.factor(lda_topics_thirties)
+ggplot(data = thirties) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Shopping", "2. Friends", "3. Reading", "4. Celebration", "5. Family", "6. Nature", "7. Food", "8. Going out", "9. Entertainment", "10. Children")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness in Their 30s") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+##### Top 10 Topics Women 40+ Associate Happiness With
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+head(lda_terms_forties_and_over, 10)
+lda_topics_forties_and_over <- topics(lda_model_forties_and_over, k = 1)
+forties_and_over$topic <- as.factor(lda_topics_forties_and_over)
+ggplot(data = forties_and_over) +
+  geom_bar(stat = "count", aes(x = topic, fill = topic)) +
+  scale_fill_discrete(name = "Topics",
+                      labels = c("1. Pets", "2. Going out", "3. Family", "4. Shopping",  "5. Food", "6. Education",  "7. Friends", "8. Job", "9. Entertainment", "10. Nature")) +
+  ylab("Number of Happy Moments") + xlab("Topics")+ggtitle("Top 10 Topics Tied to Women's Happiness in Their 40s and Above") + theme_minimal()+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+Here, we observe interesting series of trends that reveal previously unexplored topics. Women in their 20s appear to find happiness in food, while those in their 30s lean towards shopping, and those aged 40 and above seem to derive joy from nature.
+
+### Conclusion
+1. Across different age groups, marital statuses, and geographic locations, family emerges as the primary source of happiness for women, highlighting the crucial role of family support and strength in women's lives.
+2. Besides family, women also find happiness in various other topics, including shopping, celebrations, and nature.
+3. For married women, their children become a constant and significant source of happiness. The transition from boyfriends to husbands marks a shift in the sources of joy, with activities like cooking and sharing meals with their husbands often bringing peace and contentment.
+4. Notably, the key distinction in the sources of happiness between women in developed and undeveloped regions lies in privilege. Women in less developed areas tend to find happiness in hard work, while their counterparts in more developed regions can enjoy the luxury of staying home and even taking vacations. Despite these disparities, both groups share a common appreciation for shopping, adapted to their financial circumstances.
+5. When examining women across different age groups, a clear trend emerges: personal celebrations give way to those of their children as they age, emphasizing the increasing importance of family and spending quality time with loved ones.
