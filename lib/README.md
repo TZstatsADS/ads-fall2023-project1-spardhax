@@ -1,4 +1,4 @@
 # Project 1: Unraveling the Stories Behind Women Smiles
 ### Code lib Folder
 
-The lib directory contains various files with function definitions (but only function definitions - no code that actually runs).
+This folder contains processed_moments.csv which is the main file on which text analysis is being performed.
