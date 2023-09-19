@@ -35,7 +35,7 @@ install_github("gaospecial/wordcloud2")
 ```
 
 ```{r, warning=FALSE,message=FALSE}
-# Reading "processed_moments.csv" created in data_preprocessing.R (in lib folder)
+# Reading "processed_moments.csv" created in Project 1.R (in output folder)
 hm_data <- read_csv("~/Desktop/processed_moments.csv")
 
 # Reading the demographics file
